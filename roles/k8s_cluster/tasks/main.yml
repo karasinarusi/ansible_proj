@@ -1,0 +1,18 @@
+# Подготовительные задачи
+- include_tasks: system-prep.yml
+
+# Установка Kubernetes
+- include_tasks: k8s-install.yml
+  when: inventory_hostname in groups['k8s']
+
+# Инициализация мастера (транзакционная операция)
+- include_tasks: cluster-init.yml
+  when: inventory_hostname == 'k8s-master'
+
+# Развёртывание Flannel (только после инициализации)
+- include_tasks: flannel-deploy.yml
+  when: inventory_hostname == 'k8s-master'
+
+# Подключение воркеров
+- include_tasks: worker-join.yml
+  when: inventory_hostname in ['k8s-worker1', 'k8s-worker2']

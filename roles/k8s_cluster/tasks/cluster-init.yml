@@ -1,0 +1,46 @@
+- name: Initialize Kubernetes cluster on master node
+  block:
+    - name: Initialize Kubernetes cluster with kubeadm
+      command: >
+        kubeadm init
+        --apiserver-advertise-address={{ ansible_host }}
+        --pod-network-cidr={{ pod_network_cidr }}
+        --token-ttl={{ token_ttl }}
+        {% if (lxc_container | default(false) | bool) or (ansible_virtualization_type | default('') == 'lxc') %}
+        --ignore-preflight-errors=SystemVerification,Swap
+        {% endif %}
+      args:
+        creates: /etc/kubernetes/admin.conf
+      become: yes
+      register: kubeadm_init_result
+      retries: 3
+      delay: 10
+      until: kubeadm_init_result is success
+
+    - name: Create .kube directory for current user
+      file:
+        path: $HOME/.kube
+        state: directory
+        mode: '0755'
+      become: yes
+
+    - name: Copy admin.conf to user's kube config
+      copy:
+        src: /etc/kubernetes/admin.conf
+        dest: $HOME/.kube/config
+        remote_src: yes
+      become: yes
+
+  #   - name: Deploy Flannel CNI network plugin
+  #     shell: kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml
+  #     args:
+  #       creates: /tmp/flannel_deployed
+  #     register: flannel_result
+  #     retries: 5
+  #     delay: 10
+  #     until: flannel_result is success
+  # rescue:
+  #   - name: Cleanup on cluster init failure
+  #     command: kubeadm reset -f
+  #     become: yes
+      

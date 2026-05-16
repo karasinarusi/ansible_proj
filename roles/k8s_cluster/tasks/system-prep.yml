@@ -1,0 +1,51 @@
+- name: Check current swap status
+  command: swapon --show
+  register: swap_current
+  changed_when: false
+  ignore_errors: yes
+  become: yes
+
+- name: Disable swap if it's enabled (Only for non-LXC nodes)
+  command: swapoff -a
+  when: 
+    - swap_current.stdout != ''
+    - ansible_virtualization_type | default('') != 'lxc'
+    - not (lxc_container | default(false) | bool)
+  become: yes
+
+- name: Remove swap entry from fstab (Only for non-LXC nodes)
+  lineinfile:
+    path: /etc/fstab
+    state: absent
+    regexp: '^\s*UUID.*swap|^\s*/dev/.*swap'
+  when:
+    - ansible_virtualization_type | default('') != 'lxc'
+    - not (lxc_container | default(false) | bool)
+  become: yes
+
+- name: Load required kernel modules
+  modprobe:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - br_netfilter
+    - overlay
+  become: yes
+
+- name: Configure sysctl parameters for Kubernetes
+  sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    state: present
+    reload: yes
+  loop:
+    - { name: 'net.bridge.bridge-nf-call-iptables', value: '1' }
+    - { name: 'net.ipv4.ip_forward', value: '1' }
+    - { name: 'net.bridge.bridge-nf-call-ip6tables', value: '1' }
+  become: yes
+
+- name: Update apt cache
+  apt:
+    update_cache: yes
+    cache_valid_time: 3600
+  become: yes

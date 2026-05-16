@@ -1,0 +1,119 @@
+- name: Remove ALL old and broken Kubernetes keyrings/sources
+  file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/apt/trusted.gpg.d/kubernetes-archive-keyring.gpg
+    - /etc/apt/keyrings/kubernetes-archive-key.asc
+    - /etc/apt/keyrings/kubernetes-archive-keyring.gpg
+    - /etc/apt/sources.list.d/kubernetes.list
+  become: yes
+  
+- name: Create keyring directory
+  file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: '0755'
+  become: yes
+
+- name: Download Kubernetes release key from Yandex mirror
+  get_url:
+    url: "https://mirror.yandex.ru/mirrors/pkgs.k8s.io/core/stable/v{{ k8s_version }}/deb/Release.key"
+    dest: /tmp/kubernetes-release.key
+    mode: '0644'
+    timeout: 30
+  register: download_result
+  retries: 3
+  delay: 5
+  until: download_result is success
+  become: yes
+
+
+- name: Dearmor Kubernetes GPG key to proper binary format
+  shell: gpg --dearmor < /tmp/kubernetes-release.key > /etc/apt/keyrings/kubernetes-archive-keyring.gpg
+  args:
+    creates: /etc/apt/keyrings/kubernetes-archive-keyring.gpg
+  become: yes
+
+- name: Remove temporary key file
+  file:
+    path: /tmp/kubernetes-release.key
+    state: absent
+  become: yes
+
+
+- name: Add Kubernetes apt repository via Yandex mirror
+  apt_repository:
+    repo: "deb [signed-by=/etc/apt/keyrings/kubernetes-archive-keyring.gpg arch=amd64] https://mirror.yandex.ru/mirrors/pkgs.k8s.io/core/stable/v{{ k8s_version }}/deb /"
+    filename: kubernetes
+    state: present
+  become: yes
+
+- name: Update apt cache after adding Kubernetes repository
+  apt:
+    update_cache: yes
+  become: yes
+  
+
+- name: Install containerd
+  apt:
+    name: containerd
+    state: present
+  become: yes
+
+- name: Ensure containerd config directory exists
+  file:
+    path: /etc/containerd
+    state: directory
+    mode: '0755'
+  become: yes
+
+- name: Generate default containerd config and enable SystemdCgroup
+  shell: |
+    containerd config default > /etc/containerd/config.toml
+    sed -i 's/SystemdCgroup = false/SystemdCgroup = true/g' /etc/containerd/config.toml
+  args:
+    creates: /etc/containerd/config.toml
+  become: yes
+  notify: restart containerd
+
+- name: Configure crictl to use containerd socket
+  copy:
+    dest: /etc/crictl.yaml
+    content: |
+      runtime-endpoint: unix:///run/containerd/containerd.sock
+      image-endpoint: unix:///run/containerd/containerd.sock
+      timeout: 2
+      debug: false
+    mode: '0644'
+  become: yes
+
+- name: Flush handlers to restart containerd immediately
+  meta: flush_handlers
+
+- name: Install kubeadm, kubelet, kubectl
+  apt:
+    name:
+      - kubeadm={{ k8s_version }}.0-*
+      - kubelet={{ k8s_version }}.0-*
+      - kubectl={{ k8s_version }}.0-*
+    state: present
+    update_cache: yes
+  become: yes
+
+- name: Configure kubelet extra arguments for containerd
+  copy:
+    dest: /etc/default/kubelet
+    content: |
+      KUBELET_EXTRA_ARGS="--container-runtime-endpoint=unix:///run/containerd/containerd.sock"
+    mode: '0644'
+  become: yes
+
+
+- name: Enable and start kubelet service
+  systemd:
+    name: kubelet
+    enabled: yes
+    state: started
+  become: yes
+

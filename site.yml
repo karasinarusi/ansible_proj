@@ -1,0 +1,22 @@
+---
+- name: Deploy Kubernetes Cluster with Single-File Role
+  hosts: k8s
+  become: yes
+  roles:
+    - role: k8s_cluster
+  handlers:
+  - name: Reload systemd and restart kubelet
+    systemd:
+      daemon_reload: yes
+      name: kubelet
+      state: restarted
+    become: yes
+  - name: Check Flannel pods
+    shell: kubectl get pods -n kube-flannel
+    register: flannel_pods_check
+    changed_when: false
+  - name: restart containerd
+    systemd:
+      name: containerd
+      state: restarted
+    become: yes

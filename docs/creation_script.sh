@@ -1,45 +1,66 @@
 #!/bin/bash
 
-# Списки контейнеров
 K8S_NODES=("k8s-master" "k8s-worker1" "k8s-worker2")
 ALL_NODES=("proxy1" "proxy2" "${K8S_NODES[@]}")
 
 echo "--- Настройка параметров LXC для K8s ---"
 for node in "${K8S_NODES[@]}"; do
-  lxc config set "$node" \
-    security.privileged=true \
-    security.nesting=true \
-    linux.kernel_modules=ip_tables,ip_vs,br_netfilter \
-    raw.lxc="lxc.apparmor.profile=unconfined"$'\n'"lxc.cap.drop="$'\n'"lxc.cgroup.devices.allow=a"$'\n'"lxc.mount.auto=proc:rw sys:rw"
+  # Проверяем существование контейнера перед настройкой
+  if lxc info "$node" >/dev/null 2>&1; then
+    lxc config set "$node" \
+      security.privileged=true \
+      security.nesting=true \
+      limits.memory.swap=false \
+      linux.kernel_modules=ip_tables,ip_vs,br_netfilter,overlay 
+#         lxc config set "$node" raw.lxc "lxc.apparmor.profile=unconfined
+# lxc.cap.drop=
+# lxc.mount.auto=proc:rw sys:rw cgroup:rw:force
+# lxc.cgroup2.devices.allow=a"
+    # 2. Безопасная передача raw.lxc через printf без использования EOF
+    printf "lxc.apparmor.profile = unconfined\nlxc.cap.drop =\nlxc.mount.auto = proc:rw sys:rw cgroup:rw:force\nlxc.cgroup2.devices.allow = a\n" | lxc config set "$node" raw.lxc -
+
+    # 3. Добавление устройства /dev/kmsg
+    lxc config device add "$node" kmsg unix-char path=/dev/kmsg >/dev/null 2>&1
+
+    echo "  [✓] $node: параметры LXC и лимиты swap установлены"
+    
+    # 4. Перезапуск контейнера для применения всех изменений
+    echo "  [ ] $node: перезапуск для применения настроек..."
+    lxc restart "$node"
+    echo "  [✓] $node: параметры LXC установлены"
+  fi
 done
 
-echo "--- Настройка SSH и базового ПО ---"
+echo "--- Настройка SSH и ПО ---"
+SSH_PUB_KEY="$HOME/.ssh/id_ed25519.pub"
+
+if [ ! -f "$SSH_PUB_KEY" ]; then
+  echo "[✗] Критическая ошибка: SSH-ключ $SSH_PUB_KEY не найден!"
+  exit 1
+fi
+
 for container in "${ALL_NODES[@]}"; do
-  (
-    # Проверка наличия SSH‑ключа
-    if [ ! -f ~/.ssh/id_ed25519.pub ]; then
-      echo "  [✗] $container: SSH‑ключ не найден"
-      continue
-    fi
+  if ! lxc info "$container" >/dev/null 2>&1; then
+    echo "  [✗] $container: не существует, пропуск"
+    continue
+  fi
 
-    # Копирование SSH‑ключей
-    lxc exec "$container" -- mkdir -p /root/.ssh
-    lxc file push ~/.ssh/id_ed25519.pub "$container/root/.ssh/authorized_keys" 2>/dev/null || \
-    lxc exec "$container" -- bash -c "echo '$(cat ~/.ssh/id_ed25519.pub)' > /root/.ssh/authorized_keys"
+  echo "  [ ] $container: настройка..."
+  
+  # Создание папки и проброс ключа
+  lxc exec "$container" -- mkdir -p /root/.ssh
+  lxc file push "$SSH_PUB_KEY" "$container/root/.ssh/authorized_keys"
+  lxc exec "$container" -- chown root:root /root/.ssh/authorized_keys
+  lxc exec "$container" -- chmod 600 /root/.ssh/authorized_keys
 
-    # Установка прав доступа
-    lxc exec "$container" -- chmod 600 /root/.ssh/authorized_keys
-    lxc exec "$container" -- chown root:root /root/.ssh/authorized_keys
+  # Установка ПО (удалил установку ядра, добавил kmod)
+  # -qq и DEBIAN_FRONTEND делают установку тихой и неинтерактивной
+  lxc exec "$container" -- bash -c "
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -o Acquire::ForceIPv4=true -qq
+    apt-get install -o Acquire::ForceIPv4=true -y -qq python3 openssh-server kmod curl >/dev/null
+  " && echo "  [✓] $container: ПО и SSH настроены" || echo "  [✗] $container: ошибка установки"
 
-    # Быстрая установка без лишних логов
-    if lxc exec "$container" -- bash -c "apt-get update && apt-get install -y python3 openssh-server"; then
-      echo "  [✓] $container: ПО установлено"
-    else
-      echo "  [✗] $container: ошибка установки ПО"
-    fi
-  )
 done
 
-echo "Done!"
-
-
+echo "Все операции завершены!"

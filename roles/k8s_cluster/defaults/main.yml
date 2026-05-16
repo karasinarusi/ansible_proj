@@ -1,0 +1,3 @@
+---
+token_ttl: "24h"
+lxc_container: true  # установите false, если не используете LXC

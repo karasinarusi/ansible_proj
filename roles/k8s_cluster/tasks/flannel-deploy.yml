@@ -1,0 +1,42 @@
+- name: Wait for API server to be available
+  command: kubectl cluster-info
+  register: api_check
+  retries: 12
+  delay: 10
+  until: api_check.rc == 0
+  changed_when: false
+
+- name: Ensure .kube directory exists
+  file:
+    path: "{{ ansible_user_dir }}/.kube"
+    state: directory
+    mode: '0755'
+
+- name: Copy admin kubeconfig
+  copy:
+    src: /etc/kubernetes/admin.conf
+    dest: "{{ ansible_user_dir }}/.kube/config"
+    owner: "{{ ansible_user_id }}"
+    group: "{{ ansible_user_id }}"
+    mode: '0600'
+    remote_src: yes
+  become: yes
+
+- name: Deploy Flannel CNI network plugin
+  shell: kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml
+  args:
+    creates: /tmp/flannel_deployed
+  register: flannel_result
+  retries: 5
+  delay: 30
+  until: flannel_result is success
+  notify:
+    - Check Flannel pods
+
+- name: Verify Flannel pods are running
+  command: kubectl get pods -n kube-flannel -o jsonpath='{.items[*].status.phase}'
+  register: flannel_pods
+  retries: 6
+  delay: 10
+  until: "'Running' in flannel_pods.stdout"
+  changed_when: false

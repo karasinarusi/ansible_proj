@@ -1,0 +1,197 @@
+---
+- name: Prepare nodes for Kubernetes
+  block:
+    # - name: Set LXC privileged configuration (if using LXC)
+    #   block:
+    #     - name: Enable LXC nesting
+    #       command: lxc config set {{ inventory_hostname }} security.nesting true
+    #       delegate_to: lxd-host
+    #       when: lxc_container | default(false)
+    #       changed_when: false
+
+    #     - name: Disable ID mapping isolation
+    #       command: lxc config set {{ inventory_hostname }} security.idmap.isolated false
+    #       delegate_to: lxd-host
+    #       when: lxc_container | default(false)
+    #       changed_when: false
+
+    #     - name: Set raw LXC configuration
+    #       command: |
+    #         lxc config set {{ inventory_hostname }} raw.lxc "
+    #         lxc.apparmor.profile=unconfined
+    #         lxc.cap.drop=
+    #         lxc.cgroup.devices.allow=a
+    #         lxc.mount.auto=proc:rw sys:rw"
+    #       delegate_to: lxd-host
+    #       when: lxc_container | default(false)
+    #       changed_when: false
+    #   when: lxc_container | default(false)
+
+    - name: Load required kernel modules
+      modprobe:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - br_netfilter
+        - overlay
+      become: yes
+
+    - name: Configure sysctl parameters for Kubernetes
+      sysctl:
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+        state: present
+        reload: yes
+      loop:
+        - { name: 'net.bridge.bridge-nf-call-iptables', value: '1' }
+        - { name: 'net.ipv4.ip_forward', value: '1' }
+        - { name: 'net.bridge.bridge-nf-call-ip6tables', value: '1' }
+      become: yes
+
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+      become: yes
+
+    - name: Create keyring directory
+      file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: '0755'
+      become: yes
+
+    - name: Download Kubernetes release key from Yandex mirror
+      get_url:
+        url: "https://mirror.yandex.ru/mirrors/pkgs.k8s.io/core/stable/v{{ k8s_version }}/deb/Release.key"
+        dest: /tmp/kubernetes-release.key
+        mode: '0644'
+        timeout: 30
+      register: download_result
+      retries: 3
+      delay: 5
+      until: download_result is success
+      become: yes
+
+
+    - name: Import Kubernetes GPG key properly
+      command: |
+        gpg --no-default-keyring \
+              --keyring /etc/apt/trusted.gpg.d/kubernetes-archive-keyring.gpg \
+              --import /tmp/kubernetes-release.key
+      args:
+        creates: /etc/apt/trusted.gpg.d/kubernetes-archive-keyring.gpg
+      become: yes
+
+    - name: Remove temporary key file
+      file:
+        path: /tmp/kubernetes-release.key
+        state: absent
+      become: yes
+
+
+    - name: Add Kubernetes apt repository via Yandex mirror
+      apt_repository:
+        repo: "deb [arch=amd64] https://mirror.yandex.ru/mirrors/pkgs.k8s.io/core/stable/v{{ k8s_version }}/deb /"
+        filename: kubernetes
+        state: present
+      become: yes
+
+    - name: Update apt cache after adding Kubernetes repository
+      apt:
+        update_cache: yes
+      become: yes
+      
+
+    - name: Install containerd
+      apt:
+        name: containerd
+        state: present
+      become: yes
+
+    - name: Install kubeadm, kubelet, kubectl
+      apt:
+        name:
+          - kubeadm={{ k8s_version }}.0-1.1
+          - kubelet={{ k8s_version }}.0-1.1
+          - kubectl={{ k8s_version }}.0-1.1
+        state: present
+        update_cache: yes
+      become: yes
+
+    - name: Enable and start kubelet service
+      systemd:
+        name: kubelet
+        enabled: yes
+        state: started
+      become: yes
+  when: inventory_hostname in groups['k8s']
+
+- name: Initialize Kubernetes cluster on master node
+  block:
+
+
+    - name: Initialize Kubernetes cluster with kubeadm
+      command: >
+        kubeadm init
+        --apiserver-advertise-address={{ ansible_host }}
+        --pod-network-cidr={{ pod_network_cidr }}
+        --token-ttl={{ token_ttl }}
+      args:
+        creates: /etc/kubernetes/admin.conf
+      become: yes
+      register: kubeadm_init_result
+      retries: 3
+      delay: 10
+      until: kubeadm_init_result is success
+
+    - name: Create .kube directory for current user
+      file:
+        path: $HOME/.kube
+        state: directory
+        mode: '0755'
+      become: yes
+
+    - name: Copy admin.conf to user's kube config
+      copy:
+        src: /etc/kubernetes/admin.conf
+        dest: $HOME/.kube/config
+        remote_src: yes
+      become: yes
+
+    - name: Deploy Flannel CNI network plugin
+      shell: kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml
+      args:
+        creates: /tmp/flannel_deployed
+      register: flannel_result
+      retries: 5
+      delay: 10
+      until: flannel_result is success
+  when: inventory_hostname == 'k8s-master'
+
+- name: Join worker nodes to the cluster
+  block:
+    - name: Retrieve join command from master node
+      command: kubeadm token create --print-join-command
+      register: join_command_raw
+      delegate_to: k8s-master
+      changed_when: false
+      run_once: true
+
+    - name: Set join command as fact for all hosts
+      set_fact:
+        join_command: "{{ join_command_raw.stdout }}"
+      run_once: true
+
+    - name: Join node to Kubernetes cluster
+      shell: "{{ join_command }}"
+      args:
+        creates: /etc/kubernetes/kubelet.conf
+      register: join_result
+      until: join_result is success
+      retries: 5
+      delay: 10
+      become: yes
+  when: inventory_hostname in ['k8s-worker1', 'k8s-worker2']
+
+  become: yes
