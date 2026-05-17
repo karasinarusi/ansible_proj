@@ -1,0 +1,25 @@
+! Configuration File for keepalived
+global_defs {
+   notification_email {
+     {{ keepalived_email_to }}
+  }
+   notification_email_from "keepalived@{{ ansible_hostname }}"
+   smtp_server {{ keepalived_smtp_server }}
+   smtp_connect_timeout {{ keepalived_smtp_connect_timeout }}
+   router_id {{ ansible_hostname }}
+}
+
+vrrp_instance VI_1 {
+    state {{ keepalived_state }}
+    interface {{ keepalived_interface }}
+    virtual_router_id {{ keepalived_virtual_router_id }}
+    priority {{ keepalived_priority }}
+    advert_int 1
+    authentication {
+        auth_type PASS
+        auth_pass secret123
+    }
+    virtual_ipaddress {
+        {{ keepalived_vip }}/24
+    }
+}

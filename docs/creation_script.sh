@@ -1,7 +1,24 @@
 #!/bin/bash
 
+PROXY_NODES=("proxy1" "proxy2")
 K8S_NODES=("k8s-master" "k8s-worker1" "k8s-worker2")
-ALL_NODES=("proxy1" "proxy2" "${K8S_NODES[@]}")
+ALL_NODES=("${PROXY_NODES[@]}" "${K8S_NODES[@]}")
+
+echo "--- Настройка параметров LXC для Прокси (Keepalived / Angie) ---"
+for node in "${PROXY_NODES[@]}"; do
+  if lxc info "$node" >/dev/null 2>&1; then
+    # Настраиваем вложенность и модули
+    lxc config set "$node" \
+      security.nesting=true \
+      linux.kernel_modules=ip_vs
+
+    printf "lxc.sysctl.net.ipv4.ip_nonlocal_bind = 1\n" | lxc config set "$node" raw.lxc -
+
+    echo "  [ ] $node: перезапуск для применения настроек прокси..."
+    lxc restart "$node"
+    echo "  [✓] $node: параметры LXC для Keepalived установлены"
+  fi
+done
 
 echo "--- Настройка параметров LXC для K8s ---"
 for node in "${K8S_NODES[@]}"; do
@@ -12,11 +29,7 @@ for node in "${K8S_NODES[@]}"; do
       security.nesting=true \
       limits.memory.swap=false \
       linux.kernel_modules=ip_tables,ip_vs,br_netfilter,overlay 
-#         lxc config set "$node" raw.lxc "lxc.apparmor.profile=unconfined
-# lxc.cap.drop=
-# lxc.mount.auto=proc:rw sys:rw cgroup:rw:force
-# lxc.cgroup2.devices.allow=a"
-    # 2. Безопасная передача raw.lxc через printf без использования EOF
+
     printf "lxc.apparmor.profile = unconfined\nlxc.cap.drop =\nlxc.mount.auto = proc:rw sys:rw cgroup:rw:force\nlxc.cgroup2.devices.allow = a\n" | lxc config set "$node" raw.lxc -
 
     # 3. Добавление устройства /dev/kmsg

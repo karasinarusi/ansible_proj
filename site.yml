@@ -20,3 +20,10 @@
       name: containerd
       state: restarted
     become: yes
+
+- name: Deploy Keepalived for VIP
+  hosts: proxies
+  become: yes
+  roles:
+    - role: keepalived
+      tags: keepalived  
