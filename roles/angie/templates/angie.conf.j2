@@ -1,0 +1,20 @@
+user {{ angie_user }};
+worker_processes {{ angie_worker_processes }};
+
+events {
+    worker_connections {{ angie_worker_connections }};
+}
+
+http {
+    include /etc/angie/conf.d/*.conf;
+    default_type application/octet-stream;
+
+    sendfile on;
+    tcp_nopush on;
+    tcp_nodelay on;
+    keepalive_timeout 65;
+    types_hash_max_size 2048;
+
+    include /etc/angie/mime.types;
+    default_type application/octet-stream;
+}

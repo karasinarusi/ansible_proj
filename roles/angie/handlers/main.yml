@@ -1,0 +1,10 @@
+---
+- name: restart angie
+  systemd:
+    name: angie
+    state: restarted
+
+- name: reload angie
+  systemd:
+    name: angie
+    state: reloaded

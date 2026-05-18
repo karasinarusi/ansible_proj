@@ -1,0 +1,18 @@
+upstream hello-world-backend {
+    {% for server in k8s_backend_servers %}
+    server {{ server }};
+    {% endfor %}
+}
+
+server {
+    listen {{ vip_address }}:80;
+    server_name _;
+
+    location / {
+        proxy_pass http://hello-world-backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}

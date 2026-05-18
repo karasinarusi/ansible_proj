@@ -27,3 +27,10 @@
   roles:
     - role: keepalived
       tags: keepalived  
+
+- name: Configure Angie Reverse Proxy
+  hosts: proxies
+  become: yes
+  roles:
+    - role: angie
+      tags: angie

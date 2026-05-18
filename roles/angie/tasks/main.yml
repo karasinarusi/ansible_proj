@@ -1,0 +1,29 @@
+---
+- name: Create keyring directory on remote hosts
+  file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: '0755'
+
+- name: Download official Angie repository key directly to hosts
+  get_url:
+    url: https://download.angie.software
+    dest: /etc/apt/keyrings/angie-signing.gpg
+    mode: '0644'
+
+- name: Add Angie repository file
+  copy:
+    dest: /etc/apt/sources.list.d/angie.list
+    content: "deb [signed-by=/etc/apt/keyrings/angie-signing.gpg] https://download.angie.software{{ ansible_distribution | lower }} {{ ansible_distribution_release }} main\n"
+    mode: '0644'
+  register: angie_repo
+
+- name: Update apt cache if repository was added
+  apt:
+    update_cache: yes
+  when: angie_repo.changed
+
+- name: Install Angie package
+  apt:
+    name: angie
+    state: present
