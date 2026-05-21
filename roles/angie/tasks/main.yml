@@ -1,15 +1,78 @@
-- name: Check for APT locks and remove them if found
-  command: lsof /var/lib/dpkg/lock /var/cache/apt/archives/lock
-  register: apt_locks
-  ignore_errors: true
-  changed_when: false
-
-- name: Remove APT locks if present
+- name: Create keyring directory on remote hosts
   file:
-    path: "{{ item }}"
-    state: absent
-  loop:
-    - /var/lib/dpkg/lock
-    - /var/cache/apt/archives/lock
-  when: apt_locks.rc == 0
+    path: /etc/apt/keyrings
+    state: directory
+    mode: '0755'
+
+- name: Download official Angie repository key directly to hosts
+  get_url:
+    url: https://download.angie.software/angie/ubuntu/22.04/dists/jammy/Release.gpg
+    dest: /etc/apt/keyrings/angie-signing.gpg
+    mode: '0644'
+    timeout: 30
+  register: key_download
+  retries: 3
+  delay: 5
+  until: key_download is success
+  ignore_errors: true
+
+- name: Fail if key download failed
+  fail:
+    msg: "Failed to download GPG key after 3 attempts"
+  when: key_download is failed
+
+- name: Verify key file integrity
+  stat:
+    path: /etc/apt/keyrings/angie-signing.gpg
+  register: key_stat
+
+- name: Fail if key file is missing or corrupted
+  fail:
+    msg: "Key file is missing or corrupted (size: {{ key_stat.stat.size }} bytes)"
+  when: not key_stat.stat.exists or key_stat.stat.size < 100
+
+- name: Add Angie repository file with signed-by pointing to keyring
+  copy:
+    dest: /etc/apt/sources.list.d/angie.list
+    content: |
+      deb [signed-by=/etc/apt/keyrings/angie-signing.gpg] https://download.angie.software/angie/ubuntu/22.04 jammy main
+    mode: '0644'
+  register: angie_repo
+
+- name: Update apt cache with detailed error reporting
+  apt:
+    update_cache: yes
+    cache_valid_time: 3600
+  register: apt_update
+  ignore_errors: true
+  failed_when: apt_update is failed and "'No such file or directory' not in apt_update.msg"
+
+- name: Debug apt update issues
+  debug:
+    var: apt_update
+  when: apt_update is failed
+
+- name: Search for available Angie-related packages
+  shell: |
+    apt-cache pkgnames | grep -i angie || true
+  register: available_packages
+  changed_when: false
+  ignore_errors: true
+
+- name: Install first available Angie package
+  apt:
+    name: "{{ available_packages.stdout_lines[0].split()[0] }}"
+  when:
+    - available_packages is succeeded
+    - available_packages.stdout_lines | length > 0
+  register: install_result
+
+- name: Attempt to install 'angie' as fallback
+  apt:
+    name: angie
+    state: present
+  when:
+    - available_packages is not defined or available_packages.stdout_lines | length == 0
+    - install_result is not defined
+  register: fallback_install
   ignore_errors: true
