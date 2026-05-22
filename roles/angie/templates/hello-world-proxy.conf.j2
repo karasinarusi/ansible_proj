@@ -1,6 +1,7 @@
 upstream hello-world-backend {
-    {% for server in k8s_backend_servers %}
-    server {{ server }};
+    {% for host in groups['k8s_workers'] %}
+    # Автоматически берем IP-адрес каждого воркера из инвентаря
+    server {{ hostvars[host]['ansible_host'] }}:30001;
     {% endfor %}
 }
 

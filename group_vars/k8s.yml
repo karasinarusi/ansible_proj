@@ -1,0 +1,4 @@
+---
+k8s_version: "1.28"
+pod_network_cidr: "10.244.0.0/16"
+token_ttl: "24h"

@@ -1,9 +1,4 @@
 ---
-angie_version: "1.24.0"
-angie_user: "www-data"
 angie_worker_processes: "auto"
 angie_worker_connections: 1024
-vip_address: "10.211.89.200"  # VIP из keepalived
-k8s_backend_servers:
-  - "k8s-worker1:30001"
-  - "k8s-worker2:30001"
+vip_address: "{{ shared_vip_address }}" 

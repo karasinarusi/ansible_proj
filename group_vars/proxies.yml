@@ -1,0 +1,12 @@
+---
+angie_version: "1.24.0"
+angie_user: "www-data"
+
+keepalived_vip: "{{ shared_vip_address }}"
+keepalived_interface: "eth0"
+keepalived_virtual_router_id: 51
+
+
+k8s_backend_servers:
+  - "10.211.89.193:30001"
+  - "10.211.89.174:30001"

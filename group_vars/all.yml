@@ -1,0 +1,2 @@
+shared_vip_address: "10.211.89.200"
+lxc_container: true

@@ -1,9 +1,7 @@
 ---
 keepalived_state: "BACKUP"
 keepalived_priority: 100
-keepalived_interface: "eth0"
-keepalived_virtual_router_id: 51
-keepalived_vip: "10.211.89.200"  # VIP-адрес
+keepalived_vip: "{{ shared_vip_address }}" 
 keepalived_smtp_server: "127.0.0.1"
 keepalived_smtp_connect_timeout: 30
 keepalived_email_to: "admin@example.com"
