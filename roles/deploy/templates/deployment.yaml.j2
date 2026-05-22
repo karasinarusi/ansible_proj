@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hello-world
+  namespace: hello-world-app
+  labels:
+    app: hello-world
+# Реализация требования: аутентификация/авторизация через ServiceAccount
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: hello-world
+  template:
+    metadata:
+      labels:
+        app: hello-world
+    spec:
+      serviceAccountName: hello-app-sa
+      containers:
+      - name: hello-world
+        image: ealen/echo-server:latest # Отличный, легковесный Hello World
+        ports:
+        - containerPort: 80
+        env:
+        - name: PORT
+          value: "80"
