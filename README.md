@@ -1,24 +1,25 @@
-# Настройка окружения LXC
+# Цель проекта
 
-## Шаг 1: Создание контейнеров
+Подготовить автоматизацию с помощью Ansible. Создать Ansible‑плейбук по
+развёртыванию 2‑х реверс‑прокси на Angie с VIP‑адресом через keepalived, в
+качестве бэкенда использовать k8s‑кластер c 2‑мя контейнерами приложения
+«Hello world». Реализовать аутентификацию и авторизацию в k8s‑кластере.
+Обратите внимание: плейбук необходимо создать с 4-мя ролями (настройка
+Angine, настройка keepalived, создание k8s-кластера и деплой Hello word),
+k8s-кластер создавать через kubeadm с 3-мя нодами.
 
-Запустите следующие контейнеры на базе Ubuntu 22.04:
+# Запуск в боевой среде
 
+## Шаг 1: Прописать ip адреса подов.
+В [inventory.ini](inventory.ini) ip задать адреса подов.
+
+## Шаг 2: Выполнить локально команду.
+Убедиться что машина, на которой запускается скрипт может подключиться по ssh к целевым серверам.
+
+## Шаг 3: Выполнить локально команду.
 ```bash
-lxc launch ubuntu:22.04 proxy1
-lxc launch ubuntu:22.04 proxy2
-lxc launch ubuntu:22.04 k8s-master
-lxc launch ubuntu:22.04 k8s-worker1
-lxc launch ubuntu:22.04 k8s-worker2
+ansible-playbook -i inventory.ini site.yml -e "ansible_ssh_common_args='-o StrictHostKeyChecking=no'"   
 ```
+# Тестовый запуск
 
-
-## Шаг 2: Ограничение ресурсов(что бы уместились в 5.5 гб оперативной памяти)
-
-```bash
-lxc config set k8s-master limits.memory 2GB
-lxc config set k8s-worker1 limits.memory 1536MB
-lxc config set k8s-worker2 limits.memory 1536MB
-lxc config set proxy1 limits.memory 512MB
-lxc config set proxy2 limits.memory 512MB
-```
+Если нужно протестировать локально, воспользоваться [инструкцией для локального запуска](docs/README.md).
